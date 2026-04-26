@@ -1,0 +1,30 @@
+name: Lean CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      test-command:
+        description: >
+          Shell command to run after a successful build. Defaults to
+          `lake test`, which runs the package's `@[test_driver]`-tagged
+          target. Pass an empty string to skip.
+        type: string
+        required: false
+        default: 'lake test'
+      runs-on:
+        description: GitHub-hosted runner image.
+        type: string
+        required: false
+        default: ubuntu-latest
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          test: false
+      - name: Smoke test
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}

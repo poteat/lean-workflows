@@ -1,0 +1,85 @@
+name: Bump Lean toolchain (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      test-command:
+        description: >
+          Shell command to validate the new toolchain after build. Defaults
+          to `lake test`, which runs the package's `@[test_driver]`-tagged
+          target. Pass an empty string to skip.
+        type: string
+        required: false
+        default: 'lake test'
+      runs-on:
+        description: GitHub-hosted runner image.
+        type: string
+        required: false
+        default: ubuntu-latest
+      tag-release:
+        description: >
+          If true, tag and push `vX.Y.Z[-rcN]` after a successful bump so
+          Reservoir can pick it up.
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  bump:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: target
+        name: Resolve latest leanprover/lean4 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(sed 's|leanprover/lean4:||' lean-toolchain)
+          # Pick from the 10 most-recently-published lean4 tags matching v4.X.Y or v4.X.Y-rcN
+          # (skips nightly-* and any one-off tags). `sort -V` then guards against backward bumps
+          # caused by out-of-order release publishing (e.g., a patch on an older line).
+          recent=$(gh api repos/leanprover/lean4/releases \
+            --jq '.[] | select(.tag_name | test("^v4\\.\\d+\\.\\d+(-rc\\d+)?$")) | .tag_name' \
+            | head -10)
+          latest=$(printf '%s\n%s\n' "$current" "$recent" | sort -V | tail -1)
+          {
+            echo "current=$current"
+            echo "latest=$latest"
+            if [ "$current" = "$latest" ]; then
+              echo "bump=false"
+            else
+              echo "bump=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
+          echo "current=$current  latest=$latest"
+
+      - name: Update lean-toolchain
+        if: steps.target.outputs.bump == 'true'
+        run: echo "leanprover/lean4:${{ steps.target.outputs.latest }}" > lean-toolchain
+
+      - uses: leanprover/lean-action@v1
+        if: steps.target.outputs.bump == 'true'
+        with:
+          test: false
+
+      - name: Smoke test
+        if: steps.target.outputs.bump == 'true' && inputs.test-command != ''
+        run: ${{ inputs.test-command }}
+
+      - name: Commit, push, tag
+        if: steps.target.outputs.bump == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lean-toolchain
+          git commit -m "chore: bump toolchain to ${{ steps.target.outputs.latest }}"
+          git push origin HEAD:${{ github.ref_name }}
+          if [ "${{ inputs.tag-release }}" = "true" ]; then
+            git tag "${{ steps.target.outputs.latest }}"
+            git push origin "${{ steps.target.outputs.latest }}"
+          fi
