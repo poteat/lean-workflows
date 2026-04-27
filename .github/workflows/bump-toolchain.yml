@@ -92,7 +92,9 @@ jobs:
         run: |
           set -euo pipefail
           current=$(sed 's|leanprover/lean4:||' lean-toolchain)
-          base_tag="v${current}.0"
+          # `current` already starts with "v" (it's the lean toolchain tag verbatim),
+          # so just append the patch suffix.
+          base_tag="${current}.0"
           if gh api "repos/${{ github.repository }}/git/ref/tags/${base_tag}" --silent 2>/dev/null; then
             echo "needs_tag=false" >> "$GITHUB_OUTPUT"
             echo "${base_tag} already exists, skipping"
