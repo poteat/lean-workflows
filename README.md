@@ -85,6 +85,9 @@ jobs:
       pages: write
       id-token: write
     uses: poteat/lean-workflows/.github/workflows/docs.yml@main
+    with:
+      package-name: my-package    # the `package «...»` name in the lakefile
+      docs-targets: MyPackage:docs # one or more `<Target>:docs` facets
 ```
 
 Before the first run, enable Pages on the repo:
@@ -93,13 +96,20 @@ Before the first run, enable Pages on the repo:
 Docs land at `https://<owner>.github.io/<repo>/docs` (or, if the user-site
 has a custom domain, `https://<custom>/<repo>/docs`).
 
+Unlike `leanprover-community/docgen-action`, this workflow accepts both
+`lakefile.toml` and `lakefile.lean` packages — the throwaway `docbuild/`
+lakefile is generated from the inputs above rather than parsed from the
+project's lakefile.
+
 ## Inputs
 
-| Workflow                | Input          | Default         | Notes                                              |
-| ----------------------- | -------------- | --------------- | -------------------------------------------------- |
-| `ci`, `bump-toolchain`  | `test-command` | `lake test`     | Shell command to validate after build. `''` skips. |
-| all                     | `runs-on`      | `ubuntu-latest` | Override runner image.                             |
-| `bump-toolchain`        | `tag-release`  | `true`          | Idempotently push `v<toolchain>.0` for Reservoir.  |
+| Workflow                | Input            | Default         | Notes                                                                          |
+| ----------------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
+| `ci`, `bump-toolchain`  | `test-command`   | `lake test`     | Shell command to validate after build. `''` skips.                             |
+| all                     | `runs-on`        | `ubuntu-latest` | Override runner image.                                                         |
+| `bump-toolchain`        | `tag-release`    | `true`          | Idempotently push `v<toolchain>.0` for Reservoir.                              |
+| `docs`                  | `package-name`   | _required_      | Lake package name (from `package «...»` in the lakefile).                      |
+| `docs`                  | `docs-targets`   | _required_      | Space-separated `:docs` facets to build (e.g. `MyLib:docs`).                   |
 
 ## Repo settings required
 

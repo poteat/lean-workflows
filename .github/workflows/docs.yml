@@ -1,23 +1,39 @@
 name: Build and deploy docs (reusable)
 
+# Builds API docs with `doc-gen4` and deploys them to GitHub Pages.
+#
+# We do NOT use `leanprover-community/docgen-action` because it requires
+# `lakefile.toml`; this workflow supports `lakefile.lean` packages too. The
+# inverted-dependency pattern (throwaway `docbuild/` lakefile that requires
+# both the package and `doc-gen4`) is otherwise the same.
+
 on:
   workflow_call:
     inputs:
+      package-name:
+        description: >
+          The Lake package name as it appears in `package «...»`
+          (e.g. `bytes`). Used as the `name` field in the throwaway
+          `docbuild/lakefile.toml` and as the argument to `lake update`.
+        type: string
+        required: true
+      docs-targets:
+        description: >
+          Space-separated list of `:docs` facets to build
+          (e.g. `Bytes:docs`). Typically `<DefaultTarget>:docs`.
+        type: string
+        required: true
       runs-on:
         description: GitHub-hosted runner image.
         type: string
         required: false
         default: ubuntu-latest
 
-# `pages` and `id-token` are required by docgen-action to upload + deploy.
-# `contents: read` is the default; spelled out for clarity alongside the writes.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Avoid concurrent deploys racing each other; queue but don't cancel in-flight,
-# since cancelling mid-deploy can leave Pages in a half-published state.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -25,6 +41,9 @@ concurrency:
 jobs:
   docs:
     runs-on: ${{ inputs.runs-on }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,4 +53,60 @@ jobs:
         with:
           test: false
 
-      - uses: leanprover-community/docgen-action@main
+      - name: Resolve doc-gen4 revision from lean-toolchain
+        id: docgen
+        run: |
+          set -euo pipefail
+          # Match the project's pinned Lean: `v4.X.Y` / `v4.X.Y-rcN` use the
+          # corresponding doc-gen4 tag; nightly uses `nightly-testing`; anything
+          # else falls back to `main`.
+          rev=main
+          if [ -f lean-toolchain ]; then
+            tc=$(cut -d: -f2 lean-toolchain)
+            case "$tc" in
+              v4.*.*-rc*|v4.*.*) rev="$tc" ;;
+              *nightly*)         rev="nightly-testing" ;;
+            esac
+          fi
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "doc-gen4 rev: $rev"
+
+      - name: Build API documentation
+        env:
+          NAME: ${{ inputs.package-name }}
+          DOCS_TARGETS: ${{ inputs.docs-targets }}
+          DOC_GEN_REV: ${{ steps.docgen.outputs.rev }}
+        run: |
+          set -euo pipefail
+          mkdir -p docbuild
+          cat > docbuild/lakefile.toml <<EOF
+          name = "docbuild"
+          reservoir = false
+          version = "0.1.0"
+          packagesDir = "../.lake/packages"
+
+          [[require]]
+          name = "$NAME"
+          path = "../"
+
+          [[require]]
+          scope = "leanprover"
+          name = "doc-gen4"
+          rev = "$DOC_GEN_REV"
+          EOF
+
+          cd docbuild
+          # Suppresses a known non-blocking mathlib-cache warning during update.
+          MATHLIB_NO_CACHE_ON_UPDATE=1 ~/.elan/bin/lake update "$NAME"
+          ~/.elan/bin/lake build $DOCS_TARGETS
+
+          cd ..
+          mkdir -p site
+          cp -r docbuild/.lake/build/doc site/docs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
