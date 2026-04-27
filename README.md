@@ -7,8 +7,10 @@ Two workflows, both invoked via `workflow_call`:
 - **`ci.yml`** — checkout, install the pinned toolchain via
   `leanprover/lean-action`, build, then run `lake test`.
 - **`bump-toolchain.yml`** — resolve the latest `leanprover/lean4` release,
-  update `lean-toolchain`, build, run `lake test`, then commit+push and
-  (optionally) tag `vX.Y.Z[-rcN]`.
+  update `lean-toolchain`, build, run `lake test`, then commit+push. After
+  every run (bump or no-op), idempotently ensure a `v<toolchain>.0` tag exists
+  for the currently-pinned toolchain — so a fresh package gets its first tag
+  without manual bootstrap. Hotfix patches (`.1`, `.2`, …) stay manual.
 
 Both default to `lake test`, which runs whichever target is tagged
 `@[test_driver]` in your `lakefile.lean`. Override `test-command` if you need
@@ -68,7 +70,7 @@ jobs:
 | ---------------- | -------------- | --------------- | -------------------------------------------------- |
 | both             | `test-command` | `lake test`     | Shell command to validate after build. `''` skips. |
 | both             | `runs-on`      | `ubuntu-latest` | Override runner image.                             |
-| `bump-toolchain` | `tag-release`  | `true`          | Push `vX.Y.Z[-rcN]` tag for Reservoir to pick up.  |
+| `bump-toolchain` | `tag-release`  | `true`          | Idempotently push `v<toolchain>.0` for Reservoir.  |
 
 ## Repo settings required
 

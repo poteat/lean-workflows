@@ -18,8 +18,11 @@ on:
         default: ubuntu-latest
       tag-release:
         description: >
-          If true, tag and push `vX.Y.Z[-rcN]` after a successful bump so
-          Reservoir can pick it up.
+          If true, ensure a `v<toolchain>.0` tag exists for whatever toolchain
+          the repo is currently pinned to (creating it if missing). Runs both
+          after a bump and on no-op runs, so a fresh package gets its first
+          tag without manual bootstrap. Hotfix patches (`.1`, `.2`, …) stay
+          manual.
         type: boolean
         required: false
         default: true
@@ -70,7 +73,7 @@ jobs:
         if: steps.target.outputs.bump == 'true' && inputs.test-command != ''
         run: ${{ inputs.test-command }}
 
-      - name: Commit, push, tag
+      - name: Commit and push bump
         if: steps.target.outputs.bump == 'true'
         run: |
           set -euo pipefail
@@ -79,7 +82,27 @@ jobs:
           git add lean-toolchain
           git commit -m "chore: bump toolchain to ${{ steps.target.outputs.latest }}"
           git push origin HEAD:${{ github.ref_name }}
-          if [ "${{ inputs.tag-release }}" = "true" ]; then
-            git tag "${{ steps.target.outputs.latest }}"
-            git push origin "${{ steps.target.outputs.latest }}"
+
+      - id: tag_check
+        name: Check for existing v<current>.0 tag
+        if: inputs.tag-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(sed 's|leanprover/lean4:||' lean-toolchain)
+          base_tag="v${current}.0"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${base_tag}" --silent 2>/dev/null; then
+            echo "needs_tag=false" >> "$GITHUB_OUTPUT"
+            echo "${base_tag} already exists, skipping"
+          else
+            echo "needs_tag=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${base_tag}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Push tag
+        if: inputs.tag-release && steps.tag_check.outputs.needs_tag == 'true'
+        run: |
+          set -euo pipefail
+          git tag "${{ steps.tag_check.outputs.tag }}"
+          git push origin "${{ steps.tag_check.outputs.tag }}"
