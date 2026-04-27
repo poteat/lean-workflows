@@ -23,6 +23,15 @@ on:
           (e.g. `Bytes:docs`). Typically `<DefaultTarget>:docs`.
         type: string
         required: true
+      landing-page:
+        description: >
+          Optional. If set (e.g. `Bytes.html`), the generated `docs/index.html`
+          is replaced with a meta-refresh to this path. The doc-gen4 default
+          index is austere; module pages render the module docstring and so
+          make a much better landing target.
+        type: string
+        required: false
+        default: ''
       runs-on:
         description: GitHub-hosted runner image.
         type: string
@@ -103,6 +112,28 @@ jobs:
           cd ..
           mkdir -p site
           cp -r docbuild/.lake/build/doc site/docs
+
+      - name: Redirect /docs/ to landing page
+        if: inputs.landing-page != ''
+        env:
+          TARGET: ${{ inputs.landing-page }}
+        run: |
+          set -euo pipefail
+          cat > site/docs/index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Documentation</title>
+            <link rel="canonical" href="./$TARGET">
+            <meta http-equiv="refresh" content="0; url=./$TARGET">
+            <script>location.replace('./$TARGET' + location.search + location.hash)</script>
+          </head>
+          <body>
+            <p>Redirecting to <a href="./$TARGET">$TARGET</a>…</p>
+          </body>
+          </html>
+          EOF
 
       - uses: actions/upload-pages-artifact@v3
         with:

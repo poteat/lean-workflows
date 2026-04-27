@@ -110,6 +110,7 @@ project's lakefile.
 | `bump-toolchain`        | `tag-release`    | `true`          | Idempotently push `v<toolchain>.0` for Reservoir.                              |
 | `docs`                  | `package-name`   | _required_      | Lake package name (from `package «...»` in the lakefile).                      |
 | `docs`                  | `docs-targets`   | _required_      | Space-separated `:docs` facets to build (e.g. `MyLib:docs`).                   |
+| `docs`                  | `landing-page`   | `''`            | If set (e.g. `MyLib.html`), redirects `/docs/` to this page (skips the austere `index.html`). |
 
 ## Repo settings required
 
