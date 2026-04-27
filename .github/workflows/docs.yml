@@ -1,0 +1,37 @@
+name: Build and deploy docs (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: GitHub-hosted runner image.
+        type: string
+        required: false
+        default: ubuntu-latest
+
+# `pages` and `id-token` are required by docgen-action to upload + deploy.
+# `contents: read` is the default; spelled out for clarity alongside the writes.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Avoid concurrent deploys racing each other; queue but don't cancel in-flight,
+# since cancelling mid-deploy can leave Pages in a half-published state.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: leanprover/lean-action@v1
+        with:
+          test: false
+
+      - uses: leanprover-community/docgen-action@main
