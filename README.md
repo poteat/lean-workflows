@@ -111,6 +111,8 @@ project's lakefile.
 | `docs`                  | `package-name`   | _required_      | Lake package name (from `package «...»` in the lakefile).                      |
 | `docs`                  | `docs-targets`   | _required_      | Space-separated `:docs` facets to build (e.g. `MyLib:docs`).                   |
 | `docs`                  | `landing-page`   | `''`            | If set (e.g. `MyLib.html`), redirects `/docs/` to this page (skips the austere `index.html`). |
+| `docs`                  | `header-title`   | `''`            | Replaces "Documentation" in the page header. Accepts HTML (e.g. a breadcrumb with `<a>`). |
+| `docs`                  | `hidden-modules` | `Init Lake Lean Std` | Top-level modules to strip from the sidebar (HTML files kept so cross-refs resolve). `''` shows everything. |
 
 ## Repo settings required
 

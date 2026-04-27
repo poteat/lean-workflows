@@ -32,6 +32,25 @@ on:
         type: string
         required: false
         default: ''
+      header-title:
+        description: >
+          Optional. If set, replaces the generic "Documentation" string in the
+          page header (top-left of every doc page) with this value. Accepts
+          HTML, so a breadcrumb like
+          `<a href="https://example.com/">example.com</a> / mylib` works.
+        type: string
+        required: false
+        default: ''
+      hidden-modules:
+        description: >
+          Space-separated list of top-level module names to strip from the
+          sidebar (`navbar.html`). The HTML files themselves are kept so
+          in-page cross-references still work. Defaults to the four modules
+          `doc-gen4` always emits regardless of your library. Pass `''` to
+          show everything.
+        type: string
+        required: false
+        default: 'Init Lake Lean Std'
       runs-on:
         description: GitHub-hosted runner image.
         type: string
@@ -134,6 +153,69 @@ jobs:
           </body>
           </html>
           EOF
+
+      - name: Rewrite header title
+        if: inputs.header-title != ''
+        env:
+          TITLE: ${{ inputs.header-title }}
+        run: |
+          set -euo pipefail
+          # The string `<span>Documentation</span>` appears once per page in the
+          # top-left header of every doc-gen4 page. Replace globally. Input is
+          # treated as HTML (so callers can wrap parts in <a>).
+          python3 - <<'PY'
+          import os, pathlib
+          old = '<span>Documentation</span>'
+          new = f"<span>{os.environ['TITLE']}</span>"
+          n_files, n_hits = 0, 0
+          for p in pathlib.Path('site/docs').rglob('*.html'):
+              s = p.read_text(encoding='utf-8')
+              if old in s:
+                  p.write_text(s.replace(old, new), encoding='utf-8')
+                  n_files += 1
+                  n_hits += s.count(old)
+          print(f'Rewrote header in {n_files} files ({n_hits} occurrences)')
+          PY
+
+      - name: Strip modules from sidebar
+        if: inputs.hidden-modules != ''
+        env:
+          HIDDEN: ${{ inputs.hidden-modules }}
+        run: |
+          set -euo pipefail
+          # Each top-level Library entry in navbar.html is a `<details
+          # class="nav_sect" data-path="./<Module>.html">` block with arbitrary
+          # nesting inside. We find each named entry by its data-path and
+          # remove the matching balanced `<details>...</details>` slice.
+          python3 - <<'PY'
+          import os, re, pathlib
+          path = pathlib.Path('site/docs/navbar.html')
+          html = path.read_text(encoding='utf-8')
+          modules = os.environ['HIDDEN'].split()
+          tag_re = re.compile(r'</?details\b[^>]*>')
+          removed = 0
+          for mod in modules:
+              start_pat = re.compile(
+                  rf'<details class="nav_sect" data-path="\./{re.escape(mod)}\.html">'
+              )
+              while True:
+                  m = start_pat.search(html)
+                  if not m:
+                      break
+                  # Walk forward, counting open/close <details> to find the match.
+                  depth = 1
+                  pos = m.end()
+                  for tm in tag_re.finditer(html, pos):
+                      depth += 1 if tm.group().startswith('<details') else -1
+                      if depth == 0:
+                          html = html[:m.start()] + html[tm.end():]
+                          removed += 1
+                          break
+                  else:
+                      raise SystemExit(f'unbalanced <details> for {mod}')
+          path.write_text(html, encoding='utf-8')
+          print(f'Stripped {removed} sidebar entries: {modules}')
+          PY
 
       - uses: actions/upload-pages-artifact@v3
         with:
