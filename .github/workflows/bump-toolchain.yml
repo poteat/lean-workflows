@@ -42,12 +42,13 @@ jobs:
         run: |
           set -euo pipefail
           current=$(sed 's|leanprover/lean4:||' lean-toolchain)
-          # Pick from the 10 most-recently-published lean4 tags matching v4.X.Y or v4.X.Y-rcN
-          # (skips nightly-* and any one-off tags). `sort -V` then guards against backward bumps
-          # caused by out-of-order release publishing (e.g., a patch on an older line).
-          recent=$(gh api repos/leanprover/lean4/releases \
-            --jq '.[] | select(.tag_name | test("^v4\\.\\d+\\.\\d+(-rc\\d+)?$")) | .tag_name' \
-            | head -10)
+          # Pick from the 30 most-recently-published lean4 releases matching v4.X.Y or
+          # v4.X.Y-rcN (skips nightly-* and any one-off tags). `sort -V` then guards against
+          # backward bumps caused by out-of-order release publishing (e.g., a patch on an
+          # older line). Bound at the API layer instead of `| head` to avoid SIGPIPE on
+          # the gh/jq side under `set -o pipefail`.
+          recent=$(gh api 'repos/leanprover/lean4/releases?per_page=30' \
+            --jq '.[] | select(.tag_name | test("^v4\\.\\d+\\.\\d+(-rc\\d+)?$")) | .tag_name')
           latest=$(printf '%s\n%s\n' "$current" "$recent" | sort -V | tail -1)
           {
             echo "current=$current"
