@@ -1,0 +1,98 @@
+name: Auto-hotfix release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      test-command:
+        description: >
+          Shell command to validate the build before tagging. Defaults to
+          `lake test`, which runs the package's `@[test_driver]`-tagged
+          target. Pass an empty string to skip validation (not recommended;
+          a tag implies a green build).
+        type: string
+        required: false
+        default: 'lake test'
+      runs-on:
+        description: GitHub-hosted runner image.
+        type: string
+        required: false
+        default: ubuntu-latest
+      skip-marker:
+        description: >
+          Substring in the HEAD commit message that suppresses the auto-tag.
+          Defaults to `[skip release]`. Set to empty to disable the marker.
+        type: string
+        required: false
+        default: '[skip release]'
+
+jobs:
+  hotfix:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need tags + history for the precheck
+
+      - id: precheck
+        name: Resolve next hotfix tag (current toolchain only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKIP_MARKER: ${{ inputs.skip-marker }}
+        run: |
+          set -euo pipefail
+          # Skip if the HEAD commit message contains the skip marker.
+          msg=$(git log -1 --format=%B HEAD)
+          if [ -n "$SKIP_MARKER" ] && printf '%s' "$msg" | grep -qF "$SKIP_MARKER"; then
+            echo "skip: HEAD message contains '$SKIP_MARKER'"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Skip if HEAD already has a tag (avoids racing bump-toolchain or
+          # republishing a hand-tagged release).
+          if [ -n "$(git tag --points-at HEAD)" ]; then
+            echo "skip: HEAD is already tagged ($(git tag --points-at HEAD | tr '\n' ' '))"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Resolve current toolchain.
+          toolchain=$(sed 's|leanprover/lean4:||' lean-toolchain)
+          # List existing patch tags for this toolchain.
+          # `matching-refs` returns a JSON array, possibly empty. If empty,
+          # bump-toolchain hasn't bootstrapped this toolchain yet — defer to it.
+          existing=$(gh api "repos/${{ github.repository }}/git/matching-refs/tags/v${toolchain}." \
+            --jq '.[].ref | split("/") | last' 2>/dev/null || true)
+          if [ -z "$existing" ]; then
+            echo "skip: no v${toolchain}.<N> tags yet — let bump-toolchain create .0 first"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          max_n=$(printf '%s\n' "$existing" \
+            | sed "s/^v${toolchain}\.//" \
+            | sort -n | tail -1)
+          next_n=$((max_n + 1))
+          new_tag="v${toolchain}.${next_n}"
+          echo "current=v${toolchain}.${max_n}  next=$new_tag"
+          {
+            echo "skip=false"
+            echo "new_tag=$new_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: leanprover/lean-action@v1
+        if: steps.precheck.outputs.skip != 'true'
+        with:
+          test: false
+
+      - name: Validate
+        if: steps.precheck.outputs.skip != 'true' && inputs.test-command != ''
+        run: ${{ inputs.test-command }}
+
+      - name: Tag and push
+        if: steps.precheck.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.precheck.outputs.new_tag }}"
+          git push origin "${{ steps.precheck.outputs.new_tag }}"
